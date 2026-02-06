@@ -15,12 +15,6 @@ CHECK_FILE() {
 }
 
 
-CHECK_EMPTY_ARGS() {
-    [ -z "$2" ] && { echo "Missing parameter: $1"; return 1; }
-    return 0
-}
-
-
 REMOVE_LINE() {
     if [ "$#" -ne 2 ]; then
         echo "Usage: ${FUNCNAME[0]} <TARGET_LINE> <TARGET_FILE>"
@@ -94,8 +88,7 @@ DOWNLOAD_FIRMWARE() {
     # --- Show Firmware Info ---
     file_size=$(du -m "${DOWN_DIR}/${MODEL}.zip" | cut -f1)
     echo
-    echo "✅ Firmware decrypted successfully!"
-    echo "Firmware Size: ${file_size} MB"
+    echo "✅ Firmware decrypted successfully!. Firmware Size: ${file_size} MB"
     echo "Saved to: ${DOWN_DIR}/${MODEL}.zip"
 
     # --- Cleanup ---
@@ -401,9 +394,11 @@ REPLACE_SMALI_METHOD() {
 
 
 HEX_PATCH() {
-    CHECK_EMPTY_ARGS "FILE" "$1" || return 1
-    CHECK_EMPTY_ARGS "FROM" "$2" || return 1
-    CHECK_EMPTY_ARGS "TO" "$3" || return 1
+    echo ""
+	if [ "$#" -ne 3 ]; then
+        echo "Usage: ${FUNCNAME[0]} <FILE> <TARGET_VALUE> <REPLACE_VALUE>"
+        return 1
+    fi
 
     local FILE="$1"
     local FROM="$(echo "$2" | tr '[:upper:]' '[:lower:]')"
@@ -668,6 +663,19 @@ PATCH_BT_LIB() {
 }
 
 
+FIX_VNDK() {
+    echo "- Checking $STOCK_DEVICE and $TARGET_DEVICE vndk version."
+    if [ -f "$TARGET_ROM_SYSTEM_EXT_DIR/apex/com.android.vndk.v${STOCK_VNDK_VERSION}.apex" ]; then
+        echo "- VNDK matched."
+    else
+        echo "- VNDK mismatch or missing."
+        rm -f "$TARGET_ROM_SYSTEM_EXT_DIR/apex/com.android.vndk"*.apex
+        cp -rfa "$VNDKS_COLLECTION/oneui_8.0/com.android.vndk.v${STOCK_VNDK_VERSION}.apex" "$TARGET_ROM_SYSTEM_EXT_DIR/apex/"
+        sed -i "/<vendor-ndk>/,/<\/vendor-ndk>/ s|<version>[0-9]\+</version>|<version>${STOCK_VNDK_VERSION}</version>|" "$TARGET_ROM_SYSTEM_EXT_DIR/etc/vintf/manifest.xml"
+    fi
+}
+
+
 FIX_SYSTEM_EXT() {
     if [ "$#" -ne 1 ]; then
         echo "Usage: ${FUNCNAME[0]} <EXTRACTED_FIRM_DIR>"
@@ -675,7 +683,11 @@ FIX_SYSTEM_EXT() {
     fi
 
     local EXTRACTED_FIRM_DIR="$1"
-	
+
+	if [[ ! -d "$EXTRACTED_FIRM_DIR/system_ext" ]]; then
+        export TARGET_ROM_SYSTEM_EXT_DIR="$EXTRACTED_FIRM_DIR/system/system/system_ext"
+	fi
+
     if [[ "$STOCK_HAS_SEPARATE_SYSTEM_EXT" == FALSE && -d "$EXTRACTED_FIRM_DIR/system_ext" ]]; then
 	    echo "Fixing system_ext according to $STOCK_DEVICE"
         echo "- Copying system_ext content into system root"
@@ -729,35 +741,9 @@ FIX_SYSTEM_EXT() {
 }
 
 
-FIX_VNDK() {
-    if [ "$#" -ne 1 ]; then
-        echo "Usage: ${FUNCNAME[0]} <EXTRACTED_FIRM_DIR>"
-        return 1
-    fi
-
-    local EXTRACTED_FIRM_DIR="$1"
-    local APEX_DIR="$EXTRACTED_FIRM_DIR/system/system_ext/apex"
-    echo "- Checking $STOCK_DEVICE and $TARGET_DEVICE vndk version."
-    if [ -f "$APEX_DIR/com.android.vndk.v${STOCK_VNDK_VERSION}.apex" ]; then
-        echo "- VNDK matched."
-    else
-        echo "- VNDK mismatch or missing."
-        rm -f "$APEX_DIR"/com.android.vndk*.apex
-        cp -rfa "$VNDKS_COLLECTION/com.android.vndk.v${STOCK_VNDK_VERSION}.apex" "$APEX_DIR/"
-        sed -i "/<vendor-ndk>/,/<\/vendor-ndk>/ s|<version>[0-9]\+</version>|<version>${STOCK_VNDK_VERSION}</version>|" "$EXTRACTED_FIRM_DIR/system/system_ext/etc/vintf/manifest.xml"
-    fi
-}
-
-
 FIX_SELINUX() {
     echo ""
-    if [ "$#" -ne 1 ]; then
-        echo "Usage: ${FUNCNAME[0]} <EXTRACTED_FIRM_DIR>"
-        return 1
-    fi
-
-    local EXTRACTED_FIRM_DIR="$1"
-    local SELINUX_FILE="$EXTRACTED_FIRM_DIR/system/system_ext/etc/selinux/mapping/${STOCK_VNDK_VERSION}.0.cil"
+    local SELINUX_FILE="$TARGET_ROM_SYSTEM_EXT_DIR/etc/selinux/mapping/${STOCK_VNDK_VERSION}.0.cil"
 
     if [ ! -f "$SELINUX_FILE" ]; then
         echo "Error: SELinux file not found at $SELINUX_FILE"
@@ -765,7 +751,7 @@ FIX_SELINUX() {
     fi
 
     echo "Fixing selinux for $STOCK_DEVICE."
-    
+
     UNSUPPORTED_SELINUX=("audiomirroring" "fabriccrypto" "hal_dsms_default" "qb_id_prop" "hal_dsms_service" "proc_compaction_proactiveness" "sbauth" "ker_app" "kpp_app" "kpp_data" "attiqi_app" "kpoc_charger")
 
     for keyword in "${UNSUPPORTED_SELINUX[@]}"; do
@@ -773,10 +759,10 @@ FIX_SELINUX() {
             sed -i "/$keyword/d" "$SELINUX_FILE"
         fi
     done
-	
-	REMOVE_LINE '(genfscon proc "/sys/kernel/firmware_config" (u object_r proc_fmw ((s0) (s0))))' "$EXTRACTED_FIRM_DIR/system/system_ext/etc/selinux/system_ext_sepolicy.cil"
-	REMOVE_LINE '(genfscon proc "/sys/vm/compaction_proactiveness" (u object_r proc_compaction_proactiveness ((s0) (s0))))' "$EXTRACTED_FIRM_DIR/system/system_ext/etc/selinux/system_ext_sepolicy.cil"
-    REMOVE_LINE 'init.svc.vendor.wvkprov_server_hal                           u:object_r:wvkprov_prop:s0' "$EXTRACTED_FIRM_DIR/system/system_ext/etc/selinux/system_ext_property_contexts"
+
+	REMOVE_LINE '(genfscon proc "/sys/kernel/firmware_config" (u object_r proc_fmw ((s0) (s0))))' "$TARGET_ROM_SYSTEM_EXT_DIR/etc/selinux/system_ext_sepolicy.cil"
+	REMOVE_LINE '(genfscon proc "/sys/vm/compaction_proactiveness" (u object_r proc_compaction_proactiveness ((s0) (s0))))' "$TARGET_ROM_SYSTEM_EXT_DIR/etc/selinux/system_ext_sepolicy.cil"
+    REMOVE_LINE 'init.svc.vendor.wvkprov_server_hal                           u:object_r:wvkprov_prop:s0' "$TARGET_ROM_SYSTEM_EXT_DIR/etc/selinux/system_ext_property_contexts"
 }
 
 
@@ -973,10 +959,10 @@ APPLY_STOCK_CONFIG() {
     FIX_SYSTEM_EXT "$EXTRACTED_FIRM_DIR"
 
 	# FIX VNDK.
-	FIX_VNDK "$EXTRACTED_FIRM_DIR"
+	FIX_VNDK
 
 	# FIX SELINUX.
-	FIX_SELINUX "$EXTRACTED_FIRM_DIR"
+	FIX_SELINUX
 
     # Floating Feature.
     APPLY_FLOATING_FEATURE
