@@ -140,12 +140,14 @@ EXTRACT_FIRMWARE() {
         "$FIRM_DIR"/*.bin \
         "$FIRM_DIR"/meta-data
 
-    echo "- Extracting super.img"
-    simg2img "$FIRM_DIR/super.img" "$FIRM_DIR/super_raw.img"
-    rm -rf "$FIRM_DIR/super.img"
-    lpunpack -o "$FIRM_DIR" "$FIRM_DIR/super_raw.img"
-	rm -rf "$FIRM_DIR/super_raw.img"
-    echo "- Extraction complete"
+    if [ -f "$FIRM_DIR/super.img" ]; then
+        echo "- Extracting super.img"
+        simg2img "$FIRM_DIR/super.img" "$FIRM_DIR/super_raw.img"
+        rm -f "$FIRM_DIR/super.img"
+        lpunpack -o "$FIRM_DIR" "$FIRM_DIR/super_raw.img"
+        rm -f "$FIRM_DIR/super_raw.img"
+        echo "- Extraction complete"
+    fi
 }
 
 
@@ -1074,7 +1076,7 @@ APPLY_FEATURES() {
 	local EXTRACTED_FIRM_DIR="$1"
 
     echo "Applying usefull features."
-	echo " Build prop."
+	echo " Adding build prop tweak."
 	BUILD_PROP "$EXTRACTED_FIRM_DIR" "ro.frp.pst"
     BUILD_PROP "$EXTRACTED_FIRM_DIR" "ro.product.locale" "en-US"
     BUILD_PROP "$EXTRACTED_FIRM_DIR" "fw.max_users" "5"
@@ -1085,7 +1087,7 @@ APPLY_FEATURES() {
 	BUILD_PROP "$EXTRACTED_FIRM_DIR" "ro.telephony.sim_slots.count" "2"
     BUILD_PROP "$EXTRACTED_FIRM_DIR" "ro.surface_flinger.protected_contents" "true"
 
-	echo " China smart manager."
+	echo " Adding China smart manager."
 	rm -rf "$EXTRACTED_FIRM_DIR/system/system/priv-app/AppLock"
     rm -rf "$EXTRACTED_FIRM_DIR/system/system/priv-app/Firewall"
     rm -rf "$EXTRACTED_FIRM_DIR/system/system/priv-app/SmartManager_v5"
@@ -1093,7 +1095,7 @@ APPLY_FEATURES() {
 	cp -rfa "$(pwd)/QuantumROM/Mods/SMART_MANAGER_CN/." "$EXTRACTED_FIRM_DIR/"
 	UPDATE_FLOATING_FEATURE "SEC_FLOATING_FEATURE_SMARTMANAGER_CONFIG_PACKAGE_NAME" "com.samsung.android.sm_cn"
 
-	echo " Full oneui and important apps."
+	echo " Adding full oneui and important apps."
 	rm -rf "$EXTRACTED_FIRM_DIR/system/system/app/ClockPackage"
 	rm -rf "$EXTRACTED_FIRM_DIR/system/system/priv-app/PhotoEditor_*"
 	cp -rfa "$(pwd)/QuantumROM/Mods/Apps/." "$EXTRACTED_FIRM_DIR/"
